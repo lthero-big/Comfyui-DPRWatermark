@@ -14,17 +14,15 @@ DPRW（Diffusion-based Perceptual Robust Watermarking）节点是为 ComfyUI 设
 在使用 DPRW 节点之前，您需要安装 ComfyUI 并确保其版本兼容。以下是安装步骤：
 
 ### 步骤
-1. **克隆 ComfyUI 仓库**
+1. **进入 ComfyUI 目录**
    在终端或命令行中运行以下命令：
    ```bash
-   git clone https://github.com/comfyanonymous/ComfyUI.git
-   cd ComfyUI
+   cd ComfyUI/custom_nodes/
    ```
 
 2. **添加 DPRW 节点**
    将包含 DPRW 节点的 Python 文件复制到 ComfyUI 的 `custom_nodes` 目录
    ```
-   cd custom_nodes/
    git clone https://github.com/lthero-big/Comfyui-DPRWatermark.git
    ```
 
@@ -40,6 +38,35 @@ DPRW（Diffusion-based Perceptual Robust Watermarking）节点是为 ComfyUI 设
 
 `example_workflows` 中包含一个使用FLUX生成DPRW水印图片并进行水印提取的工作流
 
+### 示例工作流
+
+以下是一个完整的工作流示例：
+
+1. **创建带水印噪声**
+   - 添加 `EmptyLatentImage` 节点生成初始潜在表示。
+   - 添加 `DPR_Latent` 节点，连接初始潜在表示，设置 `message` 为 "MyWatermark"。
+   - 输出：带水印的潜在噪声。
+
+2. **生成图像**
+   - 添加 `DPR_KSamplerAdvanced` 节点。
+   - 连接模型、条件和带水印噪声，设置 `add_dprw_noise` 为 "enable"。
+   - 输出：带水印的潜在表示。
+   - 使用 `VAEDecode` 节点解码为图像。
+
+3. **提取水印**
+   - 添加 `DPRExtractor` 节点，连接采样后的潜在表示。
+   - 输入相同的 `key`、`nonce` 和 `window_size`，运行以提取水印。
+
+---
+
+### 参数说明
+
+- **`key`**：256 位密钥（64 个十六进制字符），用于加密水印。
+- **`nonce`**：128 位 nonce（32 个十六进制字符），增强加密安全性。
+- **`message`**：水印内容，建议简短以确保嵌入效率。
+- **`window_size`**：窗口大小影响水印的鲁棒性和容量，建议从小值开始测试。
+
+---
 
 ## 设置和使用
 
@@ -145,35 +172,6 @@ DPRW 节点的使用涉及创建带水印的潜在噪声、提取水印以及使
 
 ---
 
-## 示例工作流
-
-以下是一个完整的工作流示例：
-
-1. **创建带水印噪声**
-   - 添加 `EmptyLatentImage` 节点生成初始潜在表示。
-   - 添加 `DPR_Latent` 节点，连接初始潜在表示，设置 `message` 为 "MyWatermark"。
-   - 输出：带水印的潜在噪声。
-
-2. **生成图像**
-   - 添加 `DPR_KSamplerAdvanced` 节点。
-   - 连接模型、条件和带水印噪声，设置 `add_dprw_noise` 为 "enable"。
-   - 输出：带水印的潜在表示。
-   - 使用 `VAEDecode` 节点解码为图像。
-
-3. **提取水印**
-   - 添加 `DPRExtractor` 节点，连接采样后的潜在表示。
-   - 输入相同的 `key`、`nonce` 和 `window_size`，运行以提取水印。
-
----
-
-## 参数说明
-
-- **`key`**：256 位密钥（64 个十六进制字符），用于加密水印。
-- **`nonce`**：128 位 nonce（32 个十六进制字符），增强加密安全性。
-- **`message`**：水印内容，建议简短以确保嵌入效率。
-- **`window_size`**：窗口大小影响水印的鲁棒性和容量，建议从小值开始测试。
-
----
 
 ## 引用
 
