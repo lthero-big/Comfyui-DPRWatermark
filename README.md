@@ -7,8 +7,6 @@ DPRW（Diffusion-based Perceptual Robust Watermarking）节点是为 ComfyUI 设
 - **`DPRExtractor`**: 从潜在表示中提取水印。
 - **`DPRKSamplerAdvanced`**: 高级采样器，支持使用带水印的潜在噪声生成图像。
 
-本 README 将详细介绍如何安装、设置和使用 DPRW 节点。
-
 ---
 
 ## 安装
@@ -60,8 +58,8 @@ DPRW 节点的使用涉及创建带水印的潜在噪声、提取水印以及使
 | `key`            | STRING  | "5822ff9cce6772f714192f..."               | 256 位加密密钥（64 个十六进制字符）    |
 | `nonce`          | STRING  | "05072fd1c2265f6f2e2a40..."               | 128 位加密 nonce（32 个十六进制字符）  |
 | `message`        | STRING  | "lthero"                                   | 要嵌入的水印消息                       |
-| `latent_channels`| INT     | 4 (4 至 16)                                | 潜在通道数                             |
-| `window_size`    | INT     | 1 (1 至 100)                               | 水印嵌入窗口大小，影响鲁棒性和容量     |
+| `latent_channels`| INT     | 4 (4 或 16)                                | 潜在通道数，若非FLUX等模型，只能使用4；FLUX模型必须使用16                             |
+| `window_size`    | INT     | 1                             | 水印嵌入窗口大小，影响鲁棒性和容量     |
 
 #### 使用步骤
 1. 在 ComfyUI 工作流中添加 `DPR_Latent` 节点。
