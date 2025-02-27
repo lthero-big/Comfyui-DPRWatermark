@@ -23,37 +23,25 @@ DPRW（Diffusion-based Perceptual Robust Watermarking）节点是为 ComfyUI 设
    cd ComfyUI
    ```
 
-2. **安装依赖**
-   确保您已安装 Python（建议版本 3.8 或更高版本），然后运行：
-   ```bash
-   pip install -r requirements.txt
+2. **添加 DPRW 节点**
+   将包含 DPRW 节点的 Python 文件复制到 ComfyUI 的 `custom_nodes` 目录
+   ```
+   cd custom_nodes/
+   git clone https://github.com/lthero-big/Comfyui-DPRWatermark.git
    ```
 
-3. **添加 DPRW 节点**
-   将包含 DPRW 节点的 Python 文件（例如 `dprw_node.py`）复制到 ComfyUI 的 `custom_nodes` 目录。如果没有该目录，请创建：
-   ```
-   ComfyUI/custom_nodes/
-   ```
-
-4. **启动 ComfyUI**
+3. **启动 ComfyUI**
    在 ComfyUI 目录下运行：
    ```bash
    python main.py
    ```
 
-### 依赖项
-DPRW 节点依赖以下 Python 库，这些通常已包含在 ComfyUI 的 `requirements.txt` 中，但请确认：
-- `torch`
-- `numpy`
-- `cryptography`
-- `scipy`
-
-如果缺少任何依赖，可以手动安装，例如：
-```bash
-pip install torch numpy cryptography scipy
-```
-
 ---
+
+## 使用案例
+
+example_workflows中包含一个使用FLUX生成DPRW水印图片并进行水印提取的工作流
+
 
 ## 设置和使用
 
