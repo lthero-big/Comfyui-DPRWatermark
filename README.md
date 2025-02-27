@@ -1,5 +1,9 @@
 ## 概述
 
+论文："Diversity-Preserving Robust Watermarking for Diffusion Model Generated Images".
+
+论文项目：[https://github.com/lthero-big/DPRW/](https://github.com/lthero-big/DPRW/)
+
 DPRW（Diffusion-based Perceptual Robust Watermarking）节点是为 ComfyUI 设计的自定义节点，旨在通过将水印嵌入到潜在噪声中来保护生成的图像。它利用扩散模型的特性，在不显著影响图像质量的情况下嵌入和提取水印信息。DPRW 节点提供了三个主要功能类，帮助用户在图像生成过程中添加水印、提取水印并进行高级采样。
 
 ### 主要功能
