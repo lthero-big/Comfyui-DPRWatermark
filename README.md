@@ -40,7 +40,7 @@ DPRW（Diffusion-based Perceptual Robust Watermarking）节点是为 ComfyUI 设
 
 ## 使用案例
 
-example_workflows中包含一个使用FLUX生成DPRW水印图片并进行水印提取的工作流
+`example_workflows` 中包含一个使用FLUX生成DPRW水印图片并进行水印提取的工作流
 
 
 ## 设置和使用
