@@ -1,0 +1,14 @@
+[project]
+name = "dprwatermark"
+description = "The DPRW (Diffusion-based Perceptual Robust Watermarking) node is a custom node designed for **ComfyUI**, aimed at protecting generated images by embedding watermarks into latent noise. It leverages the characteristics of diffusion models to embed and extract watermark information without significantly affecting image quality. The DPRW node provides three main functional categories, assisting users in adding watermarks, extracting watermarks, and performing advanced sampling during the image generation process."
+version = "1.0.0"
+license = {file = "LICENSE"}
+
+[project.urls]
+Repository = "https://github.com/lthero-big/Comfyui-DPRWatermark"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "Comfyui-DPRWatermark"
+Icon = ""
