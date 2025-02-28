@@ -65,16 +65,19 @@ def validate_hex(hex_str: str, expected_length: int, default: bytes) -> bytes:
     return default
 
 def common_ksampler(model, seed: int, steps: int, cfg: float, sampler_name: str, scheduler: str, positive, negative, latent,
-                    denoise: float = 1.0, disable_noise: bool = False, start_step: int = None, last_step: int = None,
-                    force_full_denoise: bool = False, use_dprw: bool = False, dprw_latent_noise=None):
+                    denoise: float = 1.0, disable_noise: bool = False, start_step = None, last_step= None,
+                    force_full_denoise: bool = False, use_dprw: bool = False, watermarked_latent_noise=None):
     """
     通用的 KSampler 函数，处理潜在表示采样并支持 DPRW 水印噪声
     """
     latent_image = latent["samples"]
-    latent_image = comfy.sample.fix_empty_latent_channels(model, latent_image)
+    # 如果latent_image的shape是(1,4,x,x)，则需要进行fix，它会将(1,4,x,x)的噪声，转换为(1,16,x,x)的噪声（但由于传入进来的是empty_latent,所以直接将维度扩大即可
+    # 当如果是(1,16,x,x)），于是就可以不处理了，不过这代码可以保留，它不会影响
+    if latent_image.shape[1] == 4:
+        latent_image = comfy.sample.fix_empty_latent_channels(model, latent_image)
 
-    if use_dprw and dprw_latent_noise is not None:
-        noise = dprw_latent_noise["samples"]
+    if use_dprw and watermarked_latent_noise is not None:
+        noise = watermarked_latent_noise["samples"]
     elif disable_noise:
         noise = torch.zeros_like(latent_image, device="cpu")
     else:
@@ -101,6 +104,7 @@ class DPRWatermark:
         self.key = validate_hex(key_hex, 64, os.urandom(32))
         self.nonce = validate_hex(nonce_hex, 32, os.urandom(16))
         self.logger = Loggers.get_logger(log_dir)
+        self.logger.info(f"====================DPRW Watermark Begin====================")
         self.logger.info(f"Initialized - Key: {self.key.hex()}")
         self.logger.info(f"Initialized - Nonce: {self.nonce.hex()}")
 
@@ -139,7 +143,7 @@ class DPRWatermark:
         binary[flip_indices] = 1 - binary[flip_indices]
         return binary
     
-    def _Gaussian_test(self, noise: torch.Tensor) -> None:
+    def _Gaussian_test(self, noise: torch.Tensor) -> bool:
         if isinstance(noise, torch.Tensor):
             noise = noise.cpu().numpy()
         samples = noise.flatten()
@@ -151,29 +155,47 @@ class DPRWatermark:
         if p_value < 0.05:
             raise ValueError(f"Restored noise failed Gaussian test (p={p_value:.4f})")
         self.logger.info(f"Gaussian test passed: p={p_value:.4f}")
+        return True
 
-    def _restore_noise(self, binary: torch.Tensor, shape: tuple, seed: int) -> torch.Tensor:
+    def _restore_noise(self, binary: torch.Tensor, shape: tuple, seed: int,original_noise:torch.Tensor) -> torch.Tensor:
         """还原高斯噪声"""
-        set_random_seed(seed)
-        noise = torch.randn(shape, device=self.device)
+        # set_random_seed(seed)
+        # noise = torch.randn(shape, device=self.device)
         binary_reshaped = binary.view(shape[1:])
-        original_binary = (torch.sigmoid(noise) > 0.5).to(torch.uint8)
+        original_binary = (torch.sigmoid(original_noise) > 0.5).to(torch.uint8)
         mask = binary_reshaped != original_binary
-        u = torch.rand_like(noise) * 0.5
+        u = torch.rand_like(original_noise) * 0.5
         theta = u + binary_reshaped.float() * 0.5
         adjustment = torch.erfinv(2 * theta[mask] - 1) * torch.sqrt(torch.tensor(2.0, device=self.device))
+        noise=original_noise.clone()
         noise[mask] = adjustment
         # 高斯检验
         self._Gaussian_test(noise)
-        
+        return noise
+
+    # 添加一个对noise进行处理的函数
+    def _noise_foo(self,noise: torch.Tensor, )->torch.Tensor:
+        if self.latent_channels == 16 and noise.size(1) != 16:
+            noise = torch.randn(1, self.latent_channels, noise.size(2), noise.size(3), device=self.device, dtype=noise.dtype)
+            self.logger.warning(f"Embed watermark - Using NEW random noise: {noise.shape}")
+        elif self.latent_channels == 4:
+            # 先判断噪声是否是空值，如果是则重新生成
+            samples = noise.cpu().numpy().flatten()
+            _, p_value = kstest(samples, 'norm', args=(0, 1))
+            if np.var(samples) == 0 or p_value < 0.05: 
+                self.logger.warning(f"p_value {p_value}")
+                self.logger.warning("Embed watermark - Noise variance is 0 or p-value<0.05 using new random noise")
+                noise=torch.randn(1,noise.size(1),noise.size(2),noise.size(3),device=self.device,dtype=noise.dtype)
+                self.logger.warning(f"Embed watermark - Using NEW random noise: {noise.shape}")
+            else:
+                self.logger.info(f"Embed watermark - The noise is not empty and can be used directly")
         return noise
 
     def embed_watermark(self, noise: torch.Tensor, message: str, message_length: int, window_size: int, seed: int) -> torch.Tensor:
         """嵌入水印到噪声中"""
-        if self.latent_channels != 4:
-            noise = torch.randn(1, self.latent_channels, noise.size(2), noise.size(3), device=self.device, dtype=noise.dtype)
-            self.logger.warning(f"Embed watermark - Using NEW random noise: {noise.shape}")
 
+        self.logger.info(f"====================DPRW Watermark Embedding Begin====================")
+        noise = self._noise_foo(noise)
         self.logger.info(f"Embed watermark - Noise shape: {noise.shape}")
         total_blocks = noise.numel() // (noise.shape[0] * window_size)
         self.logger.info(f"Embed watermark - Total blocks: {total_blocks}")
@@ -181,12 +203,14 @@ class DPRWatermark:
         encrypted_bits = self._encrypt(watermark)
         binary = self._binarize_noise(noise)
         binary_embedded = self._embed_bits(binary, encrypted_bits, window_size)
-        restore_noise = self._restore_noise(binary_embedded, noise.shape, seed)
+        restore_noise = self._restore_noise(binary_embedded, noise.shape, seed,noise)
         self.logger.info(f"restore_noise.shape {restore_noise.shape}")
+        self.logger.info(f"====================DPRW Watermark Embedding End====================")
         return restore_noise
 
     def extract_watermark(self, noise: torch.Tensor, message_length: int, window_size: int) -> tuple[str, str]:
         """从噪声中提取水印"""
+        self.logger.info(f"====================DPRW Watermark Extract Begin====================")
         binary = self._binarize_noise(noise)
         num_windows = len(binary) // window_size
         windows = binary[:num_windows * window_size].view(num_windows, window_size)
@@ -199,20 +223,24 @@ class DPRWatermark:
         segments = [all_bits[i:i + message_length] for i in range(0, len(all_bits) - message_length + 1, message_length)]
         msg_bin = ''.join('1' if sum(s[i] == '1' for s in segments) > len(segments) / 2 else '0' for i in range(message_length))
         msg = bytes(int(msg_bin[i:i + 8], 2) for i in range(0, len(msg_bin), 8)).decode('utf-8', errors='replace')
+        self.logger.info(f"====================DPRW Watermark Extract End====================")
         return msg_bin, msg
 
         # 水印准确性评估
     def evaluate_accuracy(self, original_msg: str, extracted_bin: str, extracted_msg_str:str="") -> float:
         """计算位准确率"""
+        self.logger.info(f"====================DPRW Watermark Evaluate Begin====================")
         orig_bin = bin(int(original_msg.encode('utf-8').hex(), 16))[2:].zfill(len(original_msg) * 8)
         min_len = min(len(orig_bin), len(extracted_bin))
         orig_bin, extracted_bin = orig_bin[:min_len], extracted_bin[:min_len]
         accuracy = sum(a == b for a, b in zip(orig_bin, extracted_bin)) / min_len
         self.logger.info(f"Evaluation - Original binary: {orig_bin}")
         self.logger.info(f"Evaluation - Extracted binary: {extracted_bin}")
+        self.logger.info(f"Evaluation - Extracted binary length: {len(extracted_bin)}")
         if accuracy > 0.9:
             self.logger.info(f"Evaluation - Extracted message: {extracted_msg_str}")
         self.logger.info(f"Evaluation - Bit accuracy: {accuracy}")
+        self.logger.info(f"====================DPRW Watermark Evaluate End====================")
         return accuracy
 
 class DPRLatent:
@@ -226,8 +254,8 @@ class DPRLatent:
                 "key": ("STRING", {"default": "5822ff9cce6772f714192f43863f6bad1bf54b78326973897e6b66c3186b77a7"}),
                 "nonce": ("STRING", {"default": "05072fd1c2265f6f2e2a4080a2bfbdd8"}),
                 "message": ("STRING", {"default": "lthero"}),
-                "latent_channels": ("INT", {"default": 4, "min": 4, "max": 16}),
-                "window_size": ("INT", {"default": 1, "min": 1, "max": 100}),
+                "latent_channels": ("INT", {"default": 4, "min": 4, "max": 16,"step": 12}),
+                "window_size": ("INT", {"default": 1, "min": 1, "max": 5}),
             }
         }
 
@@ -239,13 +267,17 @@ class DPRLatent:
         """创建带水印的潜在噪声"""
         if not isinstance(init_latent, dict) or "samples" not in init_latent:
             raise ValueError("init_latent must be a dictionary containing 'samples' key")
-        
+        # print(init_latent)
         init_noise = init_latent["samples"]
+        
+        # print(init_noise.shape)
         dprw = DPRWatermark(key, nonce,latent_channels)
         if use_seed:
             set_random_seed(seed)
         message_length = len(message) * 8
         watermarked_noise = dprw.embed_watermark(init_noise, message, message_length, window_size, seed)
+        # print(f"watermarked_noise.shape {watermarked_noise.shape}")
+        # print(watermarked_noise)
         return ({"samples": watermarked_noise},)
 
 class DPRExtractor:
@@ -284,17 +316,17 @@ class DPRKSamplerAdvanced:
         return {
             "required": {
                 "model": ("MODEL",),
-                "add_dprw_noise": (["enable", "disable"],),
+                "use_dprw_noise": (["enable", "disable"],),
                 "add_noise": (["enable", "disable"],),
                 "noise_seed": ("INT", {"default": 42, "min": 0, "max": 0xffffffffffffffff}),
                 "steps": ("INT", {"default": 20, "min": 1, "max": 10000}),
-                "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1}),
+                "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}),
                 "sampler_name": (comfy.samplers.KSampler.SAMPLERS,),
                 "scheduler": (comfy.samplers.KSampler.SCHEDULERS,),
                 "positive": ("CONDITIONING",),
                 "negative": ("CONDITIONING",),
                 "latent_image": ("LATENT",),
-                "dprw_latent_noise": ("LATENT",),
+                "watermarked_latent_noise": ("LATENT",),
                 "start_at_step": ("INT", {"default": 0, "min": 0, "max": 10000}),
                 "end_at_step": ("INT", {"default": 10000, "min": 0, "max": 10000}),
                 "return_with_leftover_noise": (["disable", "enable"],),
@@ -304,16 +336,16 @@ class DPRKSamplerAdvanced:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "sample"
     CATEGORY = "DPRW/sampling"
-
-    def sample(self, model, add_dprw_noise, add_noise, noise_seed, steps, cfg, sampler_name, scheduler, positive, negative,
-               latent_image, dprw_latent_noise, start_at_step, end_at_step, return_with_leftover_noise, denoise=1.0):
+    
+    def sample(self, model, use_dprw_noise, add_noise, noise_seed, steps, cfg, sampler_name, scheduler, positive, negative,
+               latent_image, watermarked_latent_noise, start_at_step, end_at_step, return_with_leftover_noise, denoise=1.0):
         """高级采样器，支持 DPRW 水印噪声"""
         force_full_denoise = return_with_leftover_noise != "enable"
-        use_dprw = add_dprw_noise == "enable"
+        use_dprw = use_dprw_noise == "enable"
         disable_noise = add_noise == "disable"
         return common_ksampler(model, noise_seed, steps, cfg, sampler_name, scheduler, positive, negative, latent_image,
                                denoise=denoise, disable_noise=disable_noise, start_step=start_at_step, last_step=end_at_step,
-                               force_full_denoise=force_full_denoise, use_dprw=use_dprw, dprw_latent_noise=dprw_latent_noise)
+                               force_full_denoise=force_full_denoise, use_dprw=use_dprw, watermarked_latent_noise=watermarked_latent_noise)
 
 NODE_CLASS_MAPPINGS = {
     "DPR_Latent": DPRLatent,
